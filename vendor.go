@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -36,19 +37,17 @@ func parsePkgDependencies(dir string) []string {
 	pkgsAST, err := parser.ParseDir(fileset, dir, nil, parser.ImportsOnly)
 	abortonerr(err, fmt.Sprintf("parsing dir[%s] for Go file", dir))
 
-	for name, pkgAST := range pkgsAST {
-		fmt.Printf("name[%s]\nimports:\n", name)
-		for name, file := range pkgAST.Files {
-			fmt.Printf("filename[%s] imports:\n", name)
+	pkgs := []string{}
+
+	for _, pkgAST := range pkgsAST {
+		for _, file := range pkgAST.Files {
 			for _, pkg := range file.Imports {
-				fmt.Println(pkg.Path.Value)
+				pkgs = append(pkgs, strings.Trim(pkg.Path.Value, "\""))
 			}
-			fmt.Println("---------")
 		}
-		fmt.Println("--------")
 	}
 
-	return []string{}
+	return pkgs
 }
 
 func parseAllDependencies(rootdir string) map[string]struct{} {
@@ -63,7 +62,9 @@ func parseAllDependencies(rootdir string) map[string]struct{} {
 			return nil
 		}
 
-		parsePkgDependencies(path)
+		for _, pkg := range parsePkgDependencies(path) {
+			deps[pkg] = struct{}{}
+		}
 		return nil
 	})
 
@@ -71,6 +72,11 @@ func parseAllDependencies(rootdir string) map[string]struct{} {
 }
 
 func getPackage(pkg string) {
+	cmd := exec.Command("go", "get", pkg)
+	fmt.Printf("go get %s\n", pkg)
+	output, err := cmd.CombinedOutput()
+	details := fmt.Sprintf("running go get %s. output: %s", pkg, string(output))
+	abortonerr(err, details)
 }
 
 func vendorPackage(pkg string) {
