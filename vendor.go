@@ -19,11 +19,17 @@ func main() {
 	wd, err := os.Getwd()
 	abortonerr(err, "getting working dir")
 
-	dir := ""
-	flag.StringVar(&dir, "dir", wd, "dir that will be recursively walked for deps")
+	projectdir := ""
+	flag.StringVar(&projectdir, "dir", wd, "dir that will be recursively walked for deps")
 	flag.Parse()
 
-	packages := parseAllDependencies(dir)
+	gohome := getGoHome()
+	if !strings.HasPrefix(projectdir, gohome) {
+		fmt.Println("dir must be inside your GOPATH")
+		os.Exit(1)
+	}
+
+	packages := parseAllDependencies(gohome, projectdir)
 	for pkg := range packages {
 		// TODO: could use concurrency here (fan out -> fan in)
 		getPackage(pkg)
@@ -31,7 +37,7 @@ func main() {
 
 	for pkg := range packages {
 		// TODO: could use concurrency here (fan out -> fan in)
-		vendorPackage(dir, pkg)
+		vendorPackage(gohome, projectdir, pkg)
 	}
 }
 
@@ -53,17 +59,14 @@ func parsePkgDependencies(dir string) []string {
 	return pkgs
 }
 
-func parseProjectDomain(rootdir string) string {
-	gh := gohome()
-	projectroot := strings.TrimPrefix(rootdir, gh)
-	return strings.Split(projectroot, "/")[0]
+func parseProjectDomain(gohome string, rootdir string) string {
+	projectroot := strings.TrimPrefix(rootdir, path.Join(gohome, "src"))
+	return projectroot[1:]
 }
 
-func parseAllDependencies(rootdir string) map[string]struct{} {
+func parseAllDependencies(gohome string, rootdir string) map[string]struct{} {
 	deps := map[string]struct{}{}
-	projectDomain := parseProjectDomain(rootdir)
-	// TODO: use projectDomain to avoid vendoring itself
-	fmt.Println(projectDomain)
+	projectRoot := parseProjectDomain(gohome, rootdir)
 
 	filepath.Walk(rootdir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
@@ -75,6 +78,9 @@ func parseAllDependencies(rootdir string) map[string]struct{} {
 		}
 
 		for _, pkg := range parsePkgDependencies(path) {
+			if strings.HasPrefix(pkg, projectRoot) {
+				continue
+			}
 			deps[pkg] = struct{}{}
 		}
 		return nil
@@ -91,7 +97,7 @@ func getPackage(pkg string) {
 	abortonerr(err, details)
 }
 
-func gohome() string {
+func getGoHome() string {
 	gopath := os.Getenv("GOPATH")
 	if gopath != "" {
 		return gopath
@@ -104,13 +110,11 @@ func gohome() string {
 	return path.Join(home, "go")
 }
 
-func vendorPackage(rootdir string, pkg string) {
-	gh := gohome()
-	srcpkgpath := path.Join(gh, "src", pkg)
+func vendorPackage(gohome string, rootdir string, pkg string) {
+	srcpkgpath := path.Join(gohome, "src", pkg)
 
 	entries, err := ioutil.ReadDir(srcpkgpath)
 	if err != nil {
-		fmt.Printf("skipping builtin dependency[%s]\n", pkg)
 		// WHY: supposing that invalid paths are probably builtin packages
 		// This makes sense because go get fails with names that do not
 		// match any builtin or that can't be downloaded
@@ -136,7 +140,6 @@ func vendorPackage(rootdir string, pkg string) {
 
 		srcpath := path.Join(srcpkgpath, entry.Name())
 		dstpath := path.Join(targetpkgpath, entry.Name())
-		fmt.Printf("copying [%s] to [%s]\n", srcpath, dstpath)
 		copyFile(srcpath, dstpath)
 	}
 }
