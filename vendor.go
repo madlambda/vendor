@@ -29,7 +29,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	packages := parseAllDependencies(gohome, projectdir)
+	packages := parseAllDeps(gohome, projectdir)
 	for pkg := range packages {
 		// TODO: could use concurrency here (fan out -> fan in)
 		getPackage(pkg)
@@ -41,7 +41,7 @@ func main() {
 	}
 }
 
-func parsePkgDependencies(dir string) []string {
+func parsePkgDeps(dir string) []string {
 	fileset := token.NewFileSet()
 	pkgsAST, err := parser.ParseDir(fileset, dir, nil, parser.ImportsOnly)
 	abortonerr(err, fmt.Sprintf("parsing dir[%s] for Go file", dir))
@@ -64,7 +64,7 @@ func parseProjectDomain(gohome string, rootdir string) string {
 	return projectroot[1:]
 }
 
-func parseAllDependencies(gohome string, rootdir string) map[string]struct{} {
+func parseAllDeps(gohome string, rootdir string) map[string]struct{} {
 	deps := map[string]struct{}{}
 	projectRoot := parseProjectDomain(gohome, rootdir)
 
@@ -77,7 +77,7 @@ func parseAllDependencies(gohome string, rootdir string) map[string]struct{} {
 			return nil
 		}
 
-		for _, pkg := range parsePkgDependencies(path) {
+		for _, pkg := range parsePkgDeps(path) {
 			if strings.HasPrefix(pkg, projectRoot) {
 				continue
 			}
