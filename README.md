@@ -39,4 +39,7 @@ to update one of the dependencies, we just update everything
 (keeping dependencies updated is good).
 
 This is the gist of why we built another dependency management
-tool for Go, it is as lightweight as it can get.
+tool for Go, it is as lightweight as it can get. It took approximately
+2 hours to develop and it is less than 200 lines of code, check it out ;-).
+
+Bug reports are welcomed.
