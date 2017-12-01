@@ -17,13 +17,16 @@ import (
 func main() {
 
 	wd, err := os.Getwd()
-	abortonerr(err, "getting working dir")
+	paniconerr(err, "getting working dir")
 
-	projectdir := ""
-	flag.StringVar(&projectdir, "dir", wd, "dir that will be recursively walked for deps")
+	dir := ""
+	flag.StringVar(&dir, "dir", wd, "dir that will be recursively walked for deps")
 	flag.Parse()
 
 	gohome := getGoHome()
+	projectdir, err := filepath.Abs(dir)
+	paniconerr(err, fmt.Sprintf("getting absolute path of[%s]", dir))
+
 	if !strings.HasPrefix(projectdir, gohome) {
 		fmt.Println("dir must be inside your GOPATH")
 		os.Exit(1)
@@ -44,7 +47,7 @@ func main() {
 func parsePkgDeps(dir string) []string {
 	fileset := token.NewFileSet()
 	pkgsAST, err := parser.ParseDir(fileset, dir, nil, parser.ImportsOnly)
-	abortonerr(err, fmt.Sprintf("parsing dir[%s] for Go file", dir))
+	paniconerr(err, fmt.Sprintf("parsing dir[%s] for Go file", dir))
 
 	pkgs := []string{}
 
@@ -94,7 +97,7 @@ func getPackage(pkg string) {
 	fmt.Printf("go get %s\n", pkg)
 	output, err := cmd.CombinedOutput()
 	details := fmt.Sprintf("running go get %s. output: %s", pkg, string(output))
-	abortonerr(err, details)
+	paniconerr(err, details)
 }
 
 func getGoHome() string {
@@ -123,7 +126,7 @@ func vendorPackage(gohome string, rootdir string, pkg string) {
 
 	targetpkgpath := path.Join(rootdir, "vendor", pkg)
 	err = os.MkdirAll(targetpkgpath, 0664)
-	abortonerr(err, fmt.Sprintf("creating vendor dir[%s]", targetpkgpath))
+	paniconerr(err, fmt.Sprintf("creating vendor dir[%s]", targetpkgpath))
 
 	for _, entry := range entries {
 		if entry.IsDir() {
@@ -146,25 +149,24 @@ func vendorPackage(gohome string, rootdir string, pkg string) {
 
 func closeFile(f io.Closer, name string) {
 	err := f.Close()
-	abortonerr(err, fmt.Sprintf("closing %s", name))
+	paniconerr(err, fmt.Sprintf("closing %s", name))
 }
 
 func copyFile(src string, dst string) {
 	in, err := os.Open(src)
-	abortonerr(err, fmt.Sprintf("opening %s", src))
+	paniconerr(err, fmt.Sprintf("opening %s", src))
 	defer closeFile(in, src)
 
 	out, err := os.Create(dst)
-	abortonerr(err, fmt.Sprintf("opening %s", out))
+	paniconerr(err, fmt.Sprintf("opening %s", out))
 	defer closeFile(out, dst)
 
 	_, err = io.Copy(out, in)
-	abortonerr(err, fmt.Sprintf("copying %s to %s", src, dst))
+	paniconerr(err, fmt.Sprintf("copying %s to %s", src, dst))
 }
 
-func abortonerr(err error, details string) {
+func paniconerr(err error, details string) {
 	if err != nil {
-		fmt.Printf("unexpected error[%s] %s\n", err, details)
-		os.Exit(1)
+		panic(fmt.Sprintf("unexpected error[%s] %s\n", err, details))
 	}
 }
