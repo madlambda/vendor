@@ -43,3 +43,25 @@ tool for Go, it is as lightweight as it can get. It took approximately
 2 hours to develop and it is less than 200 lines of code, check it out ;-).
 
 Bug reports are welcomed.
+
+## Install
+
+Run:
+
+```
+go get github.com/madlambda/vendor
+```
+
+## Usage
+
+On the root directory of your project run:
+
+```
+vendor
+```
+
+And a directory **vendor** with all your dependencies should be
+available.
+
+The project must be inside your GOPATH and the GOPATH or HOME environment
+variables must be exported on your shell.
