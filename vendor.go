@@ -33,15 +33,18 @@ func main() {
 	}
 
 	packages := parseAllDeps(gohome, projectdir)
+	depsGoHome, err := ioutil.TempDir("", "vendor")
+	paniconerr(err, "creating temp dir")
+	defer os.RemoveAll(depsGoHome)
+
+	os.Setenv("GOPATH", depsGoHome)
 	for pkg := range packages {
 		// TODO: could use concurrency here (fan out -> fan in)
 		getPackage(pkg)
 	}
+	os.Setenv("GOPATH", gohome)
 
-	for pkg := range packages {
-		// TODO: could use concurrency here (fan out -> fan in)
-		vendorPackage(gohome, projectdir, pkg)
-	}
+	vendorPackages(depsGoHome, projectdir)
 }
 
 func parsePkgDeps(dir string) []string {
@@ -113,38 +116,48 @@ func getGoHome() string {
 	return path.Join(home, "go")
 }
 
-func vendorPackage(gohome string, rootdir string, pkg string) {
-	srcpkgpath := path.Join(gohome, "src", pkg)
+func createDir(dir string) {
+	err := os.MkdirAll(dir, 0774)
+	paniconerr(err, fmt.Sprintf("creating dir[%s]", dir))
+}
 
-	entries, err := ioutil.ReadDir(srcpkgpath)
-	if err != nil {
-		// WHY: supposing that invalid paths are probably builtin packages
-		// This makes sense because go get fails with names that do not
-		// match any builtin or that can't be downloaded
-		return
-	}
+func vendorPackages(depsGoHome string, projectdir string) {
+	depsrootdir := path.Join(depsGoHome, "src")
+	projectVendorPath := path.Join(projectdir, "vendor")
 
-	targetpkgpath := path.Join(rootdir, "vendor", pkg)
-	err = os.MkdirAll(targetpkgpath, 0664)
-	paniconerr(err, fmt.Sprintf("creating vendor dir[%s]", targetpkgpath))
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	filepath.Walk(depsrootdir, func(path string, info os.FileInfo, err error) error {
+		fmt.Println(path)
+		fmt.Println(info)
+		if info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		// Not sure this works, but seems feasible to ignore
+		// vendoring from libs, they should not do that
+		if strings.Contains(path, "/vendor/") {
+			return nil
 		}
 
-		if !strings.HasSuffix(entry.Name(), ".go") {
-			continue
+		if !strings.HasSuffix(path, ".go") {
+			return nil
 		}
 
-		if strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
+		if strings.HasSuffix(path, "_test.go") {
+			return nil
 		}
 
-		srcpath := path.Join(srcpkgpath, entry.Name())
-		dstpath := path.Join(targetpkgpath, entry.Name())
-		copyFile(srcpath, dstpath)
-	}
+		vendoredPath := filepath.Join(
+			projectVendorPath,
+			strings.TrimPrefix(path, depsrootdir),
+		)
+
+		vendoredDir := filepath.Dir(vendoredPath)
+		createDir(vendoredDir)
+		copyFile(path, vendoredPath)
+		return nil
+	})
 }
 
 func closeFile(f io.Closer, name string) {
