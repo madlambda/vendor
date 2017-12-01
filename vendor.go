@@ -53,8 +53,17 @@ func parsePkgDependencies(dir string) []string {
 	return pkgs
 }
 
+func parseProjectDomain(rootdir string) string {
+	gh := gohome()
+	projectroot := strings.TrimPrefix(rootdir, gh)
+	return strings.Split(projectroot, "/")[0]
+}
+
 func parseAllDependencies(rootdir string) map[string]struct{} {
 	deps := map[string]struct{}{}
+	projectDomain := parseProjectDomain(rootdir)
+	// TODO: use projectDomain to avoid vendoring itself
+	fmt.Println(projectDomain)
 
 	filepath.Walk(rootdir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
