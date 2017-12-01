@@ -9,13 +9,13 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/user"
 	"path"
 	"path/filepath"
 	"strings"
 )
 
 func main() {
-
 	wd, err := os.Getwd()
 	paniconerr(err, "getting working dir")
 
@@ -23,16 +23,16 @@ func main() {
 	flag.StringVar(&dir, "dir", wd, "dir that will be recursively walked for deps")
 	flag.Parse()
 
-	gohome := getGoHome()
+	gopath := getGoPath()
 	projectdir, err := filepath.Abs(dir)
 	paniconerr(err, fmt.Sprintf("getting absolute path of[%s]", dir))
 
-	if !strings.HasPrefix(projectdir, gohome) {
+	if !strings.HasPrefix(projectdir, gopath) {
 		fmt.Println("dir must be inside your GOPATH")
 		os.Exit(1)
 	}
 
-	packages := parseAllDeps(gohome, projectdir)
+	packages := parseAllDeps(gopath, projectdir)
 	depsGoHome, err := ioutil.TempDir("", "vendor")
 	paniconerr(err, "creating temp dir")
 	defer os.RemoveAll(depsGoHome)
@@ -42,7 +42,7 @@ func main() {
 		// TODO: could use concurrency here (fan out -> fan in)
 		getPackage(pkg)
 	}
-	os.Setenv("GOPATH", gohome)
+	os.Setenv("GOPATH", gopath)
 
 	vendorPackages(depsGoHome, projectdir)
 }
@@ -65,14 +65,14 @@ func parsePkgDeps(dir string) []string {
 	return pkgs
 }
 
-func parseProjectDomain(gohome string, rootdir string) string {
-	projectroot := strings.TrimPrefix(rootdir, path.Join(gohome, "src"))
+func parseImportPath(gopath string, rootdir string) string {
+	projectroot := strings.TrimPrefix(rootdir, path.Join(gopath, "src"))
 	return projectroot[1:]
 }
 
-func parseAllDeps(gohome string, rootdir string) map[string]struct{} {
+func parseAllDeps(gopath string, rootdir string) map[string]struct{} {
 	deps := map[string]struct{}{}
-	projectRoot := parseProjectDomain(gohome, rootdir)
+	projectImportPath := parseImportPath(gopath, rootdir)
 
 	filepath.Walk(rootdir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
@@ -84,7 +84,7 @@ func parseAllDeps(gohome string, rootdir string) map[string]struct{} {
 		}
 
 		for _, pkg := range parsePkgDeps(path) {
-			if strings.HasPrefix(pkg, projectRoot) {
+			if strings.HasPrefix(pkg, projectImportPath) {
 				continue
 			}
 			deps[pkg] = struct{}{}
@@ -103,17 +103,14 @@ func getPackage(pkg string) {
 	paniconerr(err, details)
 }
 
-func getGoHome() string {
+func getGoPath() string {
 	gopath := os.Getenv("GOPATH")
 	if gopath != "" {
 		return gopath
 	}
-	home := os.Getenv("HOME")
-	if home == "" {
-		fmt.Println("no GOPATH env var found and no HOME to infer GOPATH from")
-		os.Exit(1)
-	}
-	return path.Join(home, "go")
+	u, err := user.Current()
+	paniconerr(err, "getting current user")
+	return path.Join(u.HomeDir, "go")
 }
 
 func createDir(dir string) {
@@ -126,8 +123,6 @@ func vendorPackages(depsGoHome string, projectdir string) {
 	projectVendorPath := path.Join(projectdir, "vendor")
 
 	filepath.Walk(depsrootdir, func(path string, info os.FileInfo, err error) error {
-		fmt.Println(path)
-		fmt.Println(info)
 		if info == nil {
 			return nil
 		}
