@@ -15,9 +15,11 @@ import (
 	"strings"
 )
 
+var cleanfuncs []func()
+
 func main() {
 	wd, err := os.Getwd()
-	paniconerr(err, "getting working dir")
+	abortonerr(err, "getting working dir")
 
 	dir := ""
 	flag.StringVar(&dir, "dir", wd, "dir that will be recursively walked for deps")
@@ -25,7 +27,7 @@ func main() {
 
 	gopath := getGoPath()
 	projectdir, err := filepath.Abs(dir)
-	paniconerr(err, fmt.Sprintf("getting absolute path of[%s]", dir))
+	abortonerr(err, fmt.Sprintf("getting absolute path of[%s]", dir))
 
 	if !strings.HasPrefix(projectdir, gopath) {
 		fmt.Println("dir must be inside your GOPATH")
@@ -34,8 +36,8 @@ func main() {
 
 	packages := parseAllDeps(gopath, projectdir)
 	depsGoHome, err := ioutil.TempDir("", "vendor")
-	paniconerr(err, "creating temp dir")
-	defer os.RemoveAll(depsGoHome)
+	abortonerr(err, "creating temp dir")
+	addCleanup(func() { os.RemoveAll(depsGoHome) })
 
 	os.Setenv("GOPATH", depsGoHome)
 	for pkg := range packages {
@@ -45,12 +47,13 @@ func main() {
 	os.Setenv("GOPATH", gopath)
 
 	vendorPackages(depsGoHome, projectdir)
+	cleanup()
 }
 
 func parsePkgDeps(dir string) []string {
 	fileset := token.NewFileSet()
 	pkgsAST, err := parser.ParseDir(fileset, dir, nil, parser.ImportsOnly)
-	paniconerr(err, fmt.Sprintf("parsing dir[%s] for Go file", dir))
+	abortonerr(err, fmt.Sprintf("parsing dir[%s] for Go file", dir))
 
 	pkgs := []string{}
 
@@ -100,7 +103,7 @@ func getPackage(pkg string) {
 	fmt.Printf("go get %s\n", pkg)
 	output, err := cmd.CombinedOutput()
 	details := fmt.Sprintf("running go get %s. output: %s", pkg, string(output))
-	paniconerr(err, details)
+	abortonerr(err, details)
 }
 
 func getGoPath() string {
@@ -109,13 +112,13 @@ func getGoPath() string {
 		return gopath
 	}
 	u, err := user.Current()
-	paniconerr(err, "getting current user")
+	abortonerr(err, "getting current user")
 	return path.Join(u.HomeDir, "go")
 }
 
 func createDir(dir string) {
 	err := os.MkdirAll(dir, 0774)
-	paniconerr(err, fmt.Sprintf("creating dir[%s]", dir))
+	abortonerr(err, fmt.Sprintf("creating dir[%s]", dir))
 }
 
 func vendorPackages(depsGoHome string, projectdir string) {
@@ -157,24 +160,37 @@ func vendorPackages(depsGoHome string, projectdir string) {
 
 func closeFile(f io.Closer, name string) {
 	err := f.Close()
-	paniconerr(err, fmt.Sprintf("closing %s", name))
+	abortonerr(err, fmt.Sprintf("closing %s", name))
 }
 
 func copyFile(src string, dst string) {
 	in, err := os.Open(src)
-	paniconerr(err, fmt.Sprintf("opening %s", src))
-	defer closeFile(in, src)
+	abortonerr(err, fmt.Sprintf("opening %s", src))
+	addCleanup(func() { closeFile(in, src) })
 
 	out, err := os.Create(dst)
-	paniconerr(err, fmt.Sprintf("opening %s", out))
-	defer closeFile(out, dst)
+	abortonerr(err, fmt.Sprintf("opening %s", out))
+	addCleanup(func() { closeFile(out, dst) })
 
 	_, err = io.Copy(out, in)
-	paniconerr(err, fmt.Sprintf("copying %s to %s", src, dst))
+	abortonerr(err, fmt.Sprintf("copying %s to %s", src, dst))
 }
 
-func paniconerr(err error, details string) {
+func cleanup() {
+	for _, cleanfunc := range cleanfuncs {
+		cleanfunc()
+	}
+	cleanfuncs = nil
+}
+
+func addCleanup(c func()) {
+	cleanfuncs = append(cleanfuncs, c)
+}
+
+func abortonerr(err error, details string) {
 	if err != nil {
-		panic(fmt.Sprintf("unexpected error[%s] %s\n", err, details))
+		fmt.Sprintf("unexpected error[%s] %s\n", err, details)
+		cleanup()
+		os.Exit(1)
 	}
 }
