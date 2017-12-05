@@ -125,6 +125,9 @@ func vendorPackages(depsGoHome string, projectdir string) {
 	depsrootdir := path.Join(depsGoHome, "src")
 	projectVendorPath := path.Join(projectdir, "vendor")
 
+	err := os.RemoveAll(projectVendorPath)
+	abortonerr(err, "removing project vendor path")
+
 	filepath.Walk(depsrootdir, func(path string, info os.FileInfo, err error) error {
 		if info == nil {
 			return nil
