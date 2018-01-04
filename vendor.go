@@ -9,7 +9,6 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strings"
 )
@@ -60,7 +59,7 @@ func parsePkgDeps(dir string) []string {
 }
 
 func parseProjectDomain(gohome string, rootdir string) string {
-	projectroot := strings.TrimPrefix(rootdir, path.Join(gohome, "src"))
+	projectroot := strings.TrimPrefix(rootdir, filepath.Join(gohome, "src"))
 	return projectroot[1:]
 }
 
@@ -107,11 +106,11 @@ func getGoHome() string {
 		fmt.Println("no GOPATH env var found and no HOME to infer GOPATH from")
 		os.Exit(1)
 	}
-	return path.Join(home, "go")
+	return filepath.Join(home, "go")
 }
 
 func vendorPackage(gohome string, rootdir string, pkg string) {
-	srcpkgpath := path.Join(gohome, "src", pkg)
+	srcpkgpath := filepath.Join(gohome, "src", pkg)
 
 	entries, err := ioutil.ReadDir(srcpkgpath)
 	if err != nil {
@@ -121,7 +120,7 @@ func vendorPackage(gohome string, rootdir string, pkg string) {
 		return
 	}
 
-	targetpkgpath := path.Join(rootdir, "vendor", pkg)
+	targetpkgpath := filepath.Join(rootdir, "vendor", pkg)
 	err = os.MkdirAll(targetpkgpath, 0664)
 	abortonerr(err, fmt.Sprintf("creating vendor dir[%s]", targetpkgpath))
 
@@ -138,8 +137,8 @@ func vendorPackage(gohome string, rootdir string, pkg string) {
 			continue
 		}
 
-		srcpath := path.Join(srcpkgpath, entry.Name())
-		dstpath := path.Join(targetpkgpath, entry.Name())
+		srcpath := filepath.Join(srcpkgpath, entry.Name())
+		dstpath := filepath.Join(targetpkgpath, entry.Name())
 		copyFile(srcpath, dstpath)
 	}
 }
