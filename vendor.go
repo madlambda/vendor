@@ -9,35 +9,44 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 )
 
-func main() {
+var cleanfuncs []func()
 
+func main() {
 	wd, err := os.Getwd()
 	abortonerr(err, "getting working dir")
 
-	projectdir := ""
-	flag.StringVar(&projectdir, "dir", wd, "dir that will be recursively walked for deps")
+	dir := ""
+	flag.StringVar(&dir, "dir", wd, "dir that will be recursively walked for deps")
 	flag.Parse()
 
-	gohome := getGoHome()
-	if !strings.HasPrefix(projectdir, gohome) {
+	gopath := getGoPath()
+	projectdir, err := filepath.Abs(dir)
+	abortonerr(err, fmt.Sprintf("getting absolute path of[%s]", dir))
+
+	if !strings.HasPrefix(projectdir, gopath) {
 		fmt.Println("dir must be inside your GOPATH")
 		os.Exit(1)
 	}
 
-	packages := parseAllDeps(gohome, projectdir)
+	packages := parseAllDeps(gopath, projectdir)
+	depsGoHome, err := ioutil.TempDir("", "vendor")
+	abortonerr(err, "creating temp dir")
+	addCleanup(func() { os.RemoveAll(depsGoHome) })
+
+	os.Setenv("GOPATH", depsGoHome)
 	for pkg := range packages {
 		// TODO: could use concurrency here (fan out -> fan in)
 		getPackage(pkg)
 	}
+	os.Setenv("GOPATH", gopath)
 
-	for pkg := range packages {
-		// TODO: could use concurrency here (fan out -> fan in)
-		vendorPackage(gohome, projectdir, pkg)
-	}
+	vendorPackages(depsGoHome, projectdir)
+	cleanup()
 }
 
 func parsePkgDeps(dir string) []string {
@@ -58,14 +67,14 @@ func parsePkgDeps(dir string) []string {
 	return pkgs
 }
 
-func parseProjectDomain(gohome string, rootdir string) string {
-	projectroot := strings.TrimPrefix(rootdir, filepath.Join(gohome, "src"))
+func parseImportPath(gopath string, rootdir string) string {
+	projectroot := strings.TrimPrefix(rootdir, filepath.Join(gopath, "src"))
 	return projectroot[1:]
 }
 
-func parseAllDeps(gohome string, rootdir string) map[string]struct{} {
+func parseAllDeps(gopath string, rootdir string) map[string]struct{} {
 	deps := map[string]struct{}{}
-	projectRoot := parseProjectDomain(gohome, rootdir)
+	projectImportPath := parseImportPath(gopath, rootdir)
 
 	filepath.Walk(rootdir, func(path string, info os.FileInfo, err error) error {
 		if !info.IsDir() {
@@ -77,7 +86,7 @@ func parseAllDeps(gohome string, rootdir string) map[string]struct{} {
 		}
 
 		for _, pkg := range parsePkgDeps(path) {
-			if strings.HasPrefix(pkg, projectRoot) {
+			if strings.HasPrefix(pkg, projectImportPath) {
 				continue
 			}
 			deps[pkg] = struct{}{}
@@ -96,51 +105,59 @@ func getPackage(pkg string) {
 	abortonerr(err, details)
 }
 
-func getGoHome() string {
+func getGoPath() string {
 	gopath := os.Getenv("GOPATH")
 	if gopath != "" {
 		return gopath
 	}
-	home := os.Getenv("HOME")
-	if home == "" {
-		fmt.Println("no GOPATH env var found and no HOME to infer GOPATH from")
-		os.Exit(1)
-	}
-	return filepath.Join(home, "go")
+	u, err := user.Current()
+	abortonerr(err, "getting current user")
+	return filepath.Join(u.HomeDir, "go")
 }
 
-func vendorPackage(gohome string, rootdir string, pkg string) {
-	srcpkgpath := filepath.Join(gohome, "src", pkg)
+func createDir(dir string) {
+	err := os.MkdirAll(dir, 0774)
+	abortonerr(err, fmt.Sprintf("creating dir[%s]", dir))
+}
 
-	entries, err := ioutil.ReadDir(srcpkgpath)
-	if err != nil {
-		// WHY: supposing that invalid paths are probably builtin packages
-		// This makes sense because go get fails with names that do not
-		// match any builtin or that can't be downloaded
-		return
-	}
+func vendorPackages(depsGoHome string, projectdir string) {
+	depsrootdir := filepath.Join(depsGoHome, "src")
+	projectVendorPath := filepath.Join(projectdir, "vendor")
 
-	targetpkgpath := filepath.Join(rootdir, "vendor", pkg)
-	err = os.MkdirAll(targetpkgpath, 0664)
-	abortonerr(err, fmt.Sprintf("creating vendor dir[%s]", targetpkgpath))
+	err := os.RemoveAll(projectVendorPath)
+	abortonerr(err, "removing project vendor path")
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	filepath.Walk(depsrootdir, func(path string, info os.FileInfo, err error) error {
+		if info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		// Not sure this works, but seems feasible to ignore
+		// vendoring from libs, they should not do that
+		if strings.Contains(path, "/vendor/") {
+			return nil
 		}
 
-		if !strings.HasSuffix(entry.Name(), ".go") {
-			continue
+		if !strings.HasSuffix(path, ".go") {
+			return nil
 		}
 
-		if strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
+		if strings.HasSuffix(path, "_test.go") {
+			return nil
 		}
 
-		srcpath := filepath.Join(srcpkgpath, entry.Name())
-		dstpath := filepath.Join(targetpkgpath, entry.Name())
-		copyFile(srcpath, dstpath)
-	}
+		vendoredPath := filepath.Join(
+			projectVendorPath,
+			strings.TrimPrefix(path, depsrootdir),
+		)
+
+		vendoredDir := filepath.Dir(vendoredPath)
+		createDir(vendoredDir)
+		copyFile(path, vendoredPath)
+		return nil
+	})
 }
 
 func closeFile(f io.Closer, name string) {
@@ -151,19 +168,31 @@ func closeFile(f io.Closer, name string) {
 func copyFile(src string, dst string) {
 	in, err := os.Open(src)
 	abortonerr(err, fmt.Sprintf("opening %s", src))
-	defer closeFile(in, src)
+	addCleanup(func() { closeFile(in, src) })
 
 	out, err := os.Create(dst)
 	abortonerr(err, fmt.Sprintf("opening %s", out))
-	defer closeFile(out, dst)
+	addCleanup(func() { closeFile(out, dst) })
 
 	_, err = io.Copy(out, in)
 	abortonerr(err, fmt.Sprintf("copying %s to %s", src, dst))
 }
 
+func cleanup() {
+	for _, cleanfunc := range cleanfuncs {
+		cleanfunc()
+	}
+	cleanfuncs = nil
+}
+
+func addCleanup(c func()) {
+	cleanfuncs = append(cleanfuncs, c)
+}
+
 func abortonerr(err error, details string) {
 	if err != nil {
-		fmt.Printf("unexpected error[%s] %s\n", err, details)
+		fmt.Sprintf("unexpected error[%s] %s\n", err, details)
+		cleanup()
 		os.Exit(1)
 	}
 }
