@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"path"
 	"path/filepath"
 	"strings"
 )
@@ -69,7 +68,7 @@ func parsePkgDeps(dir string) []string {
 }
 
 func parseImportPath(gopath string, rootdir string) string {
-	projectroot := strings.TrimPrefix(rootdir, path.Join(gopath, "src"))
+	projectroot := strings.TrimPrefix(rootdir, filepath.Join(gopath, "src"))
 	return projectroot[1:]
 }
 
@@ -113,7 +112,7 @@ func getGoPath() string {
 	}
 	u, err := user.Current()
 	abortonerr(err, "getting current user")
-	return path.Join(u.HomeDir, "go")
+	return filepath.Join(u.HomeDir, "go")
 }
 
 func createDir(dir string) {
@@ -122,8 +121,8 @@ func createDir(dir string) {
 }
 
 func vendorPackages(depsGoHome string, projectdir string) {
-	depsrootdir := path.Join(depsGoHome, "src")
-	projectVendorPath := path.Join(projectdir, "vendor")
+	depsrootdir := filepath.Join(depsGoHome, "src")
+	projectVendorPath := filepath.Join(projectdir, "vendor")
 
 	err := os.RemoveAll(projectVendorPath)
 	abortonerr(err, "removing project vendor path")
