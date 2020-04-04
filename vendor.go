@@ -158,22 +158,18 @@ func vendorPackages(depsGoHome string, projectdir string) {
 
 func ignorePath(path string, isdir bool) (bool, error) {
 	base := filepath.Base(path)
-
 	if isdir {
 		if base == "vendor" || base == "testdata" {
 			return true, filepath.SkipDir
 		}
 	}
-
 	if base[0] == '.' || base[0] == '_' {
 		if isdir {
 			return true, filepath.SkipDir
 		}
 		return true, nil
 	}
-
 	ext := filepath.Ext(path)
-
 	return ext != ".go" && ext != ".s" && ext != ".c" && ext != ".h", nil
 }
 
