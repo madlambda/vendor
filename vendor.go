@@ -140,7 +140,7 @@ func vendorPackages(depsGoHome string, projectdir string) {
 			return nil
 		}
 
-		if !strings.HasSuffix(path, ".go") {
+		if !strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, ".s") {
 			return nil
 		}
 
