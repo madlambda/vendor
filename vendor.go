@@ -131,16 +131,12 @@ func vendorPackages(depsGoHome string, projectdir string) {
 		if info == nil {
 			return nil
 		}
-		if info.IsDir() {
-			return nil
-		}
-		// Not sure this works, but seems feasible to ignore
-		// vendoring from libs, they should not do that
-		if strings.Contains(path, "/vendor/") {
-			return nil
+
+		if ignore, err := ignorePath(path, info.IsDir()); ignore {
+			return err
 		}
 
-		if !strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, ".s") {
+		if info.IsDir() {
 			return nil
 		}
 
@@ -160,6 +156,27 @@ func vendorPackages(depsGoHome string, projectdir string) {
 	})
 }
 
+func ignorePath(path string, isdir bool) (bool, error) {
+	base := filepath.Base(path)
+
+	if isdir {
+		if base == "vendor" || base == "testdata" {
+			return true, filepath.SkipDir
+		}
+	}
+
+	if base[0] == '.' || base[0] == '_' {
+		if isdir {
+			return true, filepath.SkipDir
+		}
+		return true, nil
+	}
+
+	ext := filepath.Ext(path)
+
+	return ext != ".go" && ext != ".s" && ext != ".c" && ext != ".h", nil
+}
+
 func closeFile(f io.Closer, name string) {
 	err := f.Close()
 	abortonerr(err, fmt.Sprintf("closing %s", name))
@@ -168,11 +185,13 @@ func closeFile(f io.Closer, name string) {
 func copyFile(src string, dst string) {
 	in, err := os.Open(src)
 	abortonerr(err, fmt.Sprintf("opening %s", src))
-	addCleanup(func() { closeFile(in, src) })
+
+	defer closeFile(in, src)
 
 	out, err := os.Create(dst)
-	abortonerr(err, fmt.Sprintf("opening %s", out))
-	addCleanup(func() { closeFile(out, dst) })
+	abortonerr(err, fmt.Sprintf("opening %v", out))
+
+	defer closeFile(out, dst)
 
 	_, err = io.Copy(out, in)
 	abortonerr(err, fmt.Sprintf("copying %s to %s", src, dst))
@@ -191,7 +210,7 @@ func addCleanup(c func()) {
 
 func abortonerr(err error, details string) {
 	if err != nil {
-		fmt.Sprintf("unexpected error[%s] %s\n", err, details)
+		fmt.Printf("unexpected error[%s] %s\n", err, details)
 		cleanup()
 		os.Exit(1)
 	}
