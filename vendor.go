@@ -140,10 +140,6 @@ func vendorPackages(depsGoHome string, projectdir string) {
 			return nil
 		}
 
-		if strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-
 		vendoredPath := filepath.Join(
 			projectVendorPath,
 			strings.TrimPrefix(path, depsrootdir),
@@ -167,6 +163,9 @@ func ignorePath(path string, isdir bool) (bool, error) {
 		if isdir {
 			return true, filepath.SkipDir
 		}
+		return true, nil
+	}
+	if strings.HasSuffix(path, "_test.go") {
 		return true, nil
 	}
 	ext := filepath.Ext(path)
