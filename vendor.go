@@ -150,15 +150,15 @@ func vendorPackages(depsGoHome string, projectdir string) {
 
 func ignorePath(path string, isdir bool) (bool, error) {
 	base := filepath.Base(path)
-	ignorename := base[0] == '.' || base[0] == '_'
+	ignore := base[0] == '.' || base[0] == '_'
 	if isdir {
-		if ignorename || base == "vendor" || base == "testdata" {
+		if ignore || base == "vendor" || base == "testdata" {
 			return true, filepath.SkipDir
 		}
 
 		return true, nil
 	}
-	if ignorename {
+	if ignore {
 		return true, nil
 	}
 	if strings.HasSuffix(path, "_test.go") {
